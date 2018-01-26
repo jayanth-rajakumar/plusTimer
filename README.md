@@ -1,5 +1,19 @@
 ![Icon](./app/src/main/res/drawable-hdpi/ic_launcher.png) plusTimer
 =========
+Fork of plusTimer with support for the btmat device. This allows the timer to receive stackmat times via Bluetooth.
+
+Setup:
+1. Change the address variable in CurrentSessionTimerFragment.java to match your btmat's physical address before compiling.
+2. Disable WCA inspection.
+3. Disable Hold to Start
+
+Related repositories:
+https://github.com/jayanth-rajakumar/btmat-eagle
+https://github.com/jayanth-rajakumar/btmat_app
+https://github.com/jayanth-rajakumar/ledmat
+
+Original Readme below:
+
 Open Source Android Cubing Timer with WCA TNoodle Scrambles
 
 SpeedSolving thread: http://www.speedsolving.com/forum/showthread.php?46893
