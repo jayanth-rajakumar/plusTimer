@@ -15,12 +15,14 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Message;
 import android.support.v4.content.ContextCompat;
 import android.support.v4.view.animation.FastOutLinearInInterpolator;
 import android.support.v4.view.animation.FastOutSlowInInterpolator;
 import android.support.v4.view.animation.LinearOutSlowInInterpolator;
 import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
+import android.util.Log;
 import android.util.Property;
 import android.util.TypedValue;
 import android.view.LayoutInflater;
@@ -34,6 +36,7 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.caverock.androidsvg.SVG;
 import com.caverock.androidsvg.SVGParseException;
@@ -46,12 +49,15 @@ import com.pluscubed.plustimer.model.PuzzleType;
 import com.pluscubed.plustimer.model.ScrambleAndSvg;
 import com.pluscubed.plustimer.model.Session;
 import com.pluscubed.plustimer.model.Solve;
+import com.pluscubed.plustimer.utils.BluetoothThread;
 import com.pluscubed.plustimer.utils.PrefUtils;
 import com.pluscubed.plustimer.utils.Utils;
 
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Timer;
+import java.util.TimerTask;
 
 import rx.Single;
 import rx.SingleSubscriber;
@@ -73,6 +79,14 @@ public class CurrentSessionTimerFragment extends BasePresenterFragment<CurrentSe
     private static final String STATE_RUNNING = "running_boolean";
     private static final String STATE_INSPECTING = "inspecting_boolean";
     private static final String STATE_INSPECTION_START_TIME = "inspection_start_time_long";
+    private static final String TAG2 = "BluetoothActivity";
+    private final String address = "20:17:04:24:86:21";
+    long btprevnanotime = 0;
+    String btstr = "start";
+    BluetoothThread btt;
+    Timer timernav = new Timer();
+    int timertoggle = 0;
+    Handler writeHandler;
 
     //Preferences
     private boolean mHoldToStartEnabled;
@@ -119,6 +133,8 @@ public class CurrentSessionTimerFragment extends BasePresenterFragment<CurrentSe
     private boolean mScrambleImageDisplay;
     private boolean mLateStartPenalty;
     private boolean mBldMode;
+
+
     private final Runnable timerRunnable = new Runnable() {
         @Override
         public void run() {
@@ -406,11 +422,36 @@ public class CurrentSessionTimerFragment extends BasePresenterFragment<CurrentSe
                 return super.onOptionsItemSelected(item);
         }
     }
-
+    MyTask tasknav = new MyTask();
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setHasOptionsMenu(true);
+
+        this.timernav.schedule(tasknav, 0, 100);
+        if (this.btt != null) {
+            Log.w(TAG2, "Already connected!");
+            this.btt = null;
+        }
+        this.btt = new BluetoothThread(address, new Handler() {
+            public void handleMessage(Message message) {
+                String s = message.obj.toString();
+                if (s.equals("CONNECTED")) {
+                    Toast.makeText(CurrentSessionTimerFragment.this.getActivity().getApplicationContext(), "Connected", 0).show();
+                } else if (s.equals("DISCONNECTED")) {
+                    Toast.makeText(CurrentSessionTimerFragment.this.getActivity().getApplicationContext(), "Disconnected", 0).show();
+                } else if (s.equals("CONNECTION FAILED")) {
+                    Toast.makeText(CurrentSessionTimerFragment.this.getActivity().getApplicationContext(), "Connection Failed", 0).show();
+                    CurrentSessionTimerFragment.this.btt = null;
+                } else {
+                    CurrentSessionTimerFragment.this.btstr = s;
+                    CurrentSessionTimerFragment.this.timertoggle = 1;
+                }
+            }
+        });
+        this.writeHandler = this.btt.getWriteHandler();
+        this.btt.start();
+        Toast.makeText(getActivity().getApplicationContext(), "Connecting", 0).show();
 
         //Set up UIHandler
         mUiHandler = new Handler(Looper.getMainLooper());
@@ -902,6 +943,92 @@ public class CurrentSessionTimerFragment extends BasePresenterFragment<CurrentSe
         return false;
     }
 
+    private synchronized boolean onTimerTouchDownmod() {
+        boolean scrambling = mRetainedFragment.isScrambling();
+
+        //Currently Timing: User stopping timer
+        if (mTiming) {
+
+            PuzzleType.getCurrent(getActivity())
+                    .flatMap(puzzleType -> puzzleType.getCurrentSessionDeferred(getActivity()))
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .subscribe(session -> {
+
+                        try {
+                            Solve s = null;
+
+                            Session.SolveBuilder builder = session.newSolve(getActivity())
+                                    .setScramble(mRetainedFragment.getCurrentScrambleAndSvg().getScramble())
+                                    .setRawTime(btprevnanotime);
+                            if (mInspectionEnabled && mLateStartPenalty) {
+                                builder.setPenalty(Solve.PENALTY_PLUSTWO);
+                            }
+
+                            s = builder.build();
+
+                            setTimerTextFromSolve(s);
+                        } catch (CouchbaseLiteException | IOException e) {
+                            e.printStackTrace();
+                        }
+
+                        playLastBarEnterAnimation();
+                        playEnterAnimations();
+                            getActivityCallback().lockDrawerAndViewPager(false);
+
+                        resetTimer();
+
+                        if (scrambling) {
+                            setScrambleText(getString(R.string.scrambling));
+                        }
+                        mRetainedFragment.postSetScrambleViewsToCurrent();
+                    });
+
+
+            //TODO: Blind mode
+                /*if (!mBldMode) {
+                } else {
+                    s = new BldSolve(mRetainedFragment.getCurrentScrambleAndSvg().getScramble(),
+                            System.nanoTime() - mTimingStartTimestamp,
+                            mInspectionStopTimestamp - mInspectionStartTimestamp);
+                }*/
+
+
+            //Add the solve to the current session with the
+            // current scramble/scramble image and time
+            //g.onTimingFinished(s);
+
+
+            return false;
+        }
+
+        if (mBldMode) {
+            return onTimerBldTouchDown(scrambling);
+        }
+
+        if (mHoldToStartEnabled &&
+                ((!mInspectionEnabled && !scrambling) || mInspecting)) {
+            //If hold to start is on, start the hold timer
+            //If inspection is enabled, only start hold timer when inspecting
+            //Go to section 2
+            startHoldTimer();
+            return true;
+        } else if (mInspecting) {
+            //If inspecting and hold to start is off, start regular timer
+            //Go to section 3
+            setTextColor(mGreen500);
+            return true;
+        }
+
+        //If inspection is on and haven't started yet: section 1
+        //If hold to start and inspection are both off: section 3
+        if (!scrambling) {
+            setTextColor(mGreen500);
+            return true;
+        }
+        return false;
+    }
+
+
     private synchronized boolean onTimerBldTouchDown(boolean scrambling) {
         //If inspecting: section 3
         //If not inspecting yet and not scrambling: section 1
@@ -1224,6 +1351,30 @@ public class CurrentSessionTimerFragment extends BasePresenterFragment<CurrentSe
 
         FrameLayout getContentFrameLayout();
     }
+    class MyTask extends TimerTask {
+        MyTask() {
 
+        }
+
+
+        public void run() {
+            CurrentSessionTimerFragment.this.getActivity().runOnUiThread(new Runnable() {
+                public void run() {
+                    if (CurrentSessionTimerFragment.this.btstr != "start") {
+                        int sec = Integer.parseInt(Character.toString(CurrentSessionTimerFragment.this.btstr.charAt(2)) + Character.toString(CurrentSessionTimerFragment.this.btstr.charAt(3)));
+                        long btnanotime = ((((long) Integer.parseInt(Character.toString(CurrentSessionTimerFragment.this.btstr.charAt(0)))) * 60000000000L) + (((long) sec) * 1000000000)) + (((long) Integer.parseInt(Character.toString(CurrentSessionTimerFragment.this.btstr.charAt(5)) + Character.toString(CurrentSessionTimerFragment.this.btstr.charAt(6)))) * 10000000);
+                        if (CurrentSessionTimerFragment.this.btprevnanotime == 0 && btnanotime != 0) {
+                            CurrentSessionTimerFragment.this.onTimerTouchUp();
+                        } else if (CurrentSessionTimerFragment.this.btprevnanotime == btnanotime && btnanotime != 0 && CurrentSessionTimerFragment.this.timertoggle == 1) {
+                            CurrentSessionTimerFragment.this.btprevnanotime = btnanotime;
+                            CurrentSessionTimerFragment.this.onTimerTouchDownmod();
+                        }
+                        CurrentSessionTimerFragment.this.btprevnanotime = btnanotime;
+                        CurrentSessionTimerFragment.this.timertoggle = 0;
+                    }
+                }
+            });
+        }
+    }
 
 }

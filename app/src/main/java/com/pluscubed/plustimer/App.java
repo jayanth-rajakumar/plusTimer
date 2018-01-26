@@ -4,10 +4,10 @@ import android.app.Application;
 import android.os.StrictMode;
 import android.support.v7.preference.PreferenceManager;
 
-import com.crashlytics.android.Crashlytics;
 import com.squareup.leakcanary.LeakCanary;
 
-import io.fabric.sdk.android.Fabric;
+import com.pluscubed.plustimer.R;
+
 
 public class App extends Application {
 
@@ -28,11 +28,9 @@ public class App extends Application {
                     .build());
         }
 
-        if (BuildConfig.USE_CRASHLYTICS) {
-            Fabric.with(this, new Crashlytics());
-        }
 
-        PreferenceManager.setDefaultValues(this, R.xml.preferences, false);
+
+        PreferenceManager.setDefaultValues(this,R.xml.preferences , false);
 
         LeakCanary.install(this);
 

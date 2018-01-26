@@ -4,7 +4,7 @@ import android.content.Context;
 import android.view.WindowManager;
 
 import com.afollestad.materialdialogs.MaterialDialog;
-import com.crashlytics.android.Crashlytics;
+
 import com.pluscubed.plustimer.BuildConfig;
 
 /**
@@ -13,9 +13,7 @@ import com.pluscubed.plustimer.BuildConfig;
 public class ErrorUtils {
 
     public static void logCrashlytics(Exception e) {
-        if (BuildConfig.USE_CRASHLYTICS) {
-            Crashlytics.logException(e);
-        }
+
     }
 
     public static void showErrorDialog(final Context context, String userReadableMessage,
